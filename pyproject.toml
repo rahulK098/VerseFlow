@@ -1,0 +1,13 @@
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.isort]
+# Tell ruff which module names belong to this project (not third-party).
+# Without this, ruff can't distinguish local imports from PyPI packages and
+# merges them into the third-party section, causing false I001 sort errors.
+known-first-party = [
+    # apps/api
+    "database", "deps", "models", "routers", "schemas",
+    # apps/worker
+    "celery_app", "pipeline", "tasks",
+]
