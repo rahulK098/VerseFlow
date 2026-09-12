@@ -1,0 +1,15 @@
+FROM node:20-alpine
+
+WORKDIR /workspace/apps/frontend
+
+# Install deps into the image (layer-cached; only re-runs when package.json changes).
+# At runtime a named volume shadows node_modules so the Linux binaries are preserved
+# even when the Windows source directory is bind-mounted over the parent path.
+COPY apps/frontend/package*.json ./
+RUN npm install
+
+EXPOSE 3000
+
+# --hostname 0.0.0.0 is required for the dev server to be reachable from the Docker host.
+# Hot Module Replacement (HMR) works via WATCHPACK_POLLING=true set in docker-compose.yml.
+CMD ["npx", "next", "dev", "--hostname", "0.0.0.0"]

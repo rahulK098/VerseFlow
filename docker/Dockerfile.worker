@@ -1,0 +1,23 @@
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps + watchdog (for watchmedo auto-restart)
+COPY apps/worker/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt "watchdog[watchmedo]>=4.0"
+
+WORKDIR /workspace/apps/worker
+
+# watchmedo watches the entire /workspace tree for .py changes and kills+restarts
+# the celery worker process automatically — hot-reload for worker code.
+CMD ["watchmedo", "auto-restart", \
+     "--directory=/workspace", \
+     "--pattern=*.py", \
+     "--recursive", \
+     "--", \
+     "celery", "-A", "celery_app", "worker", \
+     "--loglevel=info", \
+     "--queues=analysis_queue,asset_queue,render_queue,export_queue", \
+     "--concurrency=2"]

@@ -1,0 +1,199 @@
+# VerseFlow — Local Dev Stack (everything in Docker, hot-reload enabled)
+#
+# First start:   docker compose up --build
+# Subsequent:    docker compose up -d
+# Logs:          docker compose logs -f api
+# Stop:          docker compose down
+# Nuke volumes:  docker compose down -v
+#
+# Optional monitoring UI (Flower + Redis Commander):
+#   docker compose --profile monitoring up -d
+
+version: "3.9"
+
+services:
+
+  # ── Backing services ──────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    container_name: verseflow_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: verseflow_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Admin console → http://localhost:9001
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio_init:
+    image: minio/mc:latest
+    container_name: verseflow_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
+        mc mb --ignore-existing local/verseflow;
+        mc anonymous set download local/verseflow/exports;
+        echo 'MinIO bucket ready';
+      "
+    restart: "no"
+
+  # ── Application services ──────────────────────────────────────────────────
+  #
+  # Build context is the repo root (.) so Dockerfiles can reference any path.
+  # Source code is bind-mounted at /workspace — edit locally and the service
+  # hot-reloads automatically.  Dependencies (pip/npm) are baked into the
+  # image so they survive source-code volume mounts.
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: verseflow_api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: sqlite:////data/db/verseflow.db
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /data/uploads
+      EXPORT_DIR: /data/exports
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
+      COVERR_API_KEY: ${COVERR_API_KEY:-}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
+    ports:
+      - "8000:8000"   # FastAPI → http://localhost:8000/docs
+    volumes:
+      - .:/workspace           # live source mount — uvicorn --reload picks up changes
+      - verseflow_data:/data   # shared SQLite DB + uploads + exports
+    working_dir: /workspace/apps/api
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: verseflow_worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: sqlite:////data/db/verseflow.db
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /data/uploads
+      EXPORT_DIR: /data/exports
+      WHISPER_MODEL: ${WHISPER_MODEL:-medium}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_VAD: ${WHISPER_VAD:-0}  # off for music (VAD strips singing); set 1 for podcasts
+      VOCAL_ISOLATION: ${VOCAL_ISOLATION:-auto}  # auto = songs only | 1 = always | 0 = never
+      STEMS_CACHE_DIR: /data/stems
+      DEMUCS_MODEL: ${DEMUCS_MODEL:-htdemucs}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}  # primary: ollama | azure | openrouter | groq | gemini | deepseek | anthropic
+      AZURE_OPENAI_KEY: ${AZURE_OPENAI_KEY:-}
+      AZURE_OPENAI_KEY2: ${AZURE_OPENAI_KEY2:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-chat}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-10-21}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-meta-llama/llama-3.3-70b-instruct:free}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
+      COVERR_API_KEY: ${COVERR_API_KEY:-}
+      NASA_PROVIDER: ${NASA_PROVIDER:-0}  # opt-in: NASA clips often have burned-in text
+      CACHE_DIR: /data/cache_videos
+      LOCAL_CLIPS_DIR: /data/local_clips
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
+    volumes:
+      - .:/workspace           # live source mount — watchmedo restarts celery on changes
+      - verseflow_data:/data   # shared SQLite DB + uploads + exports
+      - ./local_clips:/data/local_clips  # drop your own .mp4 clips here
+    working_dir: /workspace/apps/worker
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: verseflow_frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"   # Next.js dev → http://localhost:3000
+    volumes:
+      - ./apps/frontend:/workspace/apps/frontend                          # live source
+      - frontend_node_modules:/workspace/apps/frontend/node_modules       # Linux binaries, isolated
+      - frontend_next_cache:/workspace/apps/frontend/.next                # build cache isolated — prevents write→poll→rebuild loop
+    working_dir: /workspace/apps/frontend
+
+  # ── Optional monitoring ───────────────────────────────────────────────────
+
+  flower:
+    image: mher/flower:2.0
+    container_name: verseflow_flower
+    restart: unless-stopped
+    command: celery --broker=redis://redis:6379/0 flower --port=5555
+    ports:
+      - "5555:5555"   # Flower UI → http://localhost:5555
+    depends_on:
+      - redis
+    profiles: ["monitoring"]
+
+  redis_commander:
+    image: rediscommander/redis-commander:latest
+    container_name: verseflow_redis_ui
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"   # Redis Commander → http://localhost:8081
+    depends_on:
+      - redis
+    profiles: ["monitoring"]
+
+volumes:
+  verseflow_data:         # SQLite DB + uploads dir + exports dir (shared by api + worker)
+  minio_data:
+  frontend_node_modules:  # isolates Linux node_modules from Windows bind mount
+  frontend_next_cache:    # isolates .next build cache — prevents write→poll→rebuild loop
+
+networks:
+  default:
+    name: verseflow_network
