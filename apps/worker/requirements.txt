@@ -1,0 +1,25 @@
+# CPU-only torch wheels (avoids multi-GB CUDA downloads)
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+celery[redis]==5.4.0
+redis==5.2.1
+sqlalchemy==2.0.36
+requests==2.32.3
+yt-dlp>=2025.6.9
+
+# ML pipeline
+#
+# Tier 1 — real transcription, no GPU needed (~2 GB model download on first use)
+faster-whisper==1.1.0
+#
+# Tier 3 — music intelligence
+# demucs: vocal stem isolation before Whisper (better lyric accuracy on songs)
+# librosa: beat tracking for beat-synced background cuts
+torch==2.5.1
+torchaudio==2.5.1
+demucs==4.0.1
+librosa==0.10.2.post1
+#
+# Tier 2 — word-level timestamps via WhisperX (optional; faster-whisper's own
+# word timestamps are used by default)
+# whisperx @ git+https://github.com/m-bain/whisperX.git
