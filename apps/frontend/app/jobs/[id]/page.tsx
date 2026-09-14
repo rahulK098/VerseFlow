@@ -308,7 +308,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-6">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-7xl mx-auto">
 
         {/* Header */}
         <Link href="/jobs" className="text-gray-500 hover:text-gray-300 text-sm mb-6 inline-block">
@@ -355,9 +355,11 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           </div>
         )}
 
-        {/* ── Ready: audio player + trim + generate ── */}
+        {/* ── Ready: config drawer (left) + results (right) ── */}
         {isReady && dur > 0 && (
-          <div className="bg-gray-900 rounded-2xl p-6 mb-8 space-y-5">
+        <div className="flex flex-col lg:flex-row gap-6 items-start">
+
+          <div className="w-full lg:w-[420px] shrink-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto scrollbar-thin bg-gray-900 rounded-2xl p-6 space-y-5">
             <h2 className="font-semibold text-lg">Generate a clip</h2>
 
             {/* Audio player */}
@@ -375,7 +377,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                 <summary className="cursor-pointer select-none hover:text-gray-200 transition-colors">
                   Transcript ({project.segments.length} segments)
                 </summary>
-                <div className="mt-3 space-y-1 max-h-48 overflow-y-auto pr-1">
+                <div className="mt-3 space-y-1 max-h-48 overflow-y-auto scrollbar-thin pr-1">
                   {project.segments.map((seg, i) => (
                     <button
                       key={i}
@@ -591,23 +593,31 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
               </div>
             </div>
           </div>
-        )}
 
-        {/* ── Clips grid ── */}
-        {project.renders.length > 0 && (
-          <div>
-            <h2 className="font-semibold text-lg mb-4">
-              Your clips
-              <span className="text-gray-500 text-sm font-normal ml-2">
-                ({project.renders.length})
-              </span>
-            </h2>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-              {project.renders.map(r => (
-                <ClipCard key={r.id} render={r} onDelete={fetchProject} />
-              ))}
-            </div>
+          {/* ── Results (right) ── */}
+          <div className="flex-1 min-w-0 w-full">
+            {project.renders.length > 0 ? (
+              <div>
+                <h2 className="font-semibold text-lg mb-4">
+                  Your clips
+                  <span className="text-gray-500 text-sm font-normal ml-2">
+                    ({project.renders.length})
+                  </span>
+                </h2>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
+                  {project.renders.map(r => (
+                    <ClipCard key={r.id} render={r} onDelete={fetchProject} />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-900/50 border border-dashed border-gray-800 rounded-2xl p-10 text-center text-gray-500">
+                <p className="text-sm">Generated clips will show up here.</p>
+                <p className="text-xs mt-1">Configure a clip on the left and hit Generate.</p>
+              </div>
+            )}
           </div>
+        </div>
         )}
       </div>
     </main>
